@@ -1,19 +1,20 @@
-# DSA — URL Validator
+# DSA — URL Validator (Extended)
 
-A C++ implementation that validates whether a given string is a **well-formed URL** by checking its protocol prefix, the presence of a dot, and the character composition of the remaining string. This problem is a practical exercise in **string parsing**, **character classification**, and **condition layering** — patterns that appear in input sanitization, web scraping, and compiler/interpreter front-ends. It also serves as a concrete example of where rule-based string validation starts to show its limits against the full complexity of real-world URL structure.
+An improved C++ implementation of URL validation that addresses the key structural and functional limitations of the basic approach. This version cleanly separates the **protocol prefix** from the **rest of the URL**, validates each independently, and supports a significantly richer character set — covering paths, query strings, fragments, port numbers, and encoded characters. It is a direct demonstration of how incremental refinement of a rule-based validator looks in practice.
 
 ---
 
 ## Problem Statement
 
-Given a string, determine whether it is a **valid URL** under the following rules:
+Given a string entered by the user, determine whether it is a **valid URL** under these rules:
 - Starts with `http://` or `https://`
-- Contains at least one `.` (dot)
-- Every character after the prefix is alphanumeric, `-`, or `.`
+- Contains at least one `.` in the portion after the protocol
+- The portion after the protocol is non-empty
+- Every character in the portion after the protocol belongs to the permitted URL character set
 
 **Example Input:**
 ```
-https://www.example.com
+Enter the URL : https://www.example.com/path?q=hello&lang=en
 ```
 
 **Example Output:**
@@ -25,7 +26,7 @@ valid
 
 **Example Input:**
 ```
-ftp://example.com
+Enter the URL : ftp://example.com
 ```
 
 **Example Output:**
@@ -38,96 +39,161 @@ invalid
 ## The Code
 
 ```cpp
-#include<bits/stdc++.h>
+#include <bits/stdc++.h>
 using namespace std;
 
 int main()
 {
     string s;
+    cout << "Enter the URL : ";
     cin >> s;
 
-    if ((s.substr(0,7) == "http://" || s.substr(0,8) == "https://")
-        && s.find('.') != string::npos)
-    {
-        bool valid = true;
-        for (int i = 0; i < s.size(); i++)
-        {
-            if (!(isalnum(s[i]) || s[i] == '-' || s[i] == '.'
-                || (i < 7 && s.substr(0,7) == "http://")
-                || (i < 8 && s.substr(0,8) == "https://")))
-            {
-                valid = false;
-                break;
-            }
-        }
+    string prefix;
+    int start;
 
-        if (valid)
-            cout << "valid";
-        else
-            cout << "invalid";
+    if (s.substr(0, 7) == "http://")
+    {
+        prefix = "https://";
+        start = 7;
+    }
+    else if (s.substr(0, 8) == "https://")
+    {
+        prefix = "https://";
+        start = 8;
     }
     else
+    {
         cout << "invalid";
+        return 0;
+    }
 
+    string rest = s.substr(start);
+
+    if (rest.find('.') == string::npos || rest.empty())
+    {
+        cout << "invalid";
+        return 0;
+    }
+
+    bool valid = true;
+    for (char c : rest)
+    {
+        if (!(isalnum(c) || c == '-' || c == '.' || c == '/'  ||
+              c == '_'   || c == '?' || c == '=' || c == '&'  ||
+              c == '#'   || c == '%' || c == '+' || c == ':'  || c == '@'))
+        {
+            valid = false;
+            break;
+        }
+    }
+
+    cout << (valid ? "valid" : "invalid");
     return 0;
 }
 ```
 
 ---
 
-## How It Works — Three Layers of Validation
+## Architectural Improvement Over the Basic Version
 
-### Layer 1 — Protocol Prefix Check
+This implementation fixes the most significant structural issue from the previous version — the **prefix range trick inside the validation loop**. That approach used positional bounds (`i < 7`) to silently whitelist prefix characters, making the logic opaque and hard to reason about.
+
+Here the fix is clean and explicit:
+
 ```cpp
-s.substr(0,7) == "http://" || s.substr(0,8) == "https://"
+string rest = s.substr(start);   // strip the prefix entirely
+for (char c : rest) { ... }      // validate only what comes after
 ```
-Checks that the string begins with a recognized protocol. Any string that doesn't start with `http://` or `https://` is immediately rejected without further processing.
 
-### Layer 2 — Dot Presence Check
-```cpp
-s.find('.') != string::npos
-```
-`std::string::find` returns `string::npos` (a large sentinel value) when the character is not found. The condition confirms at least one `.` exists anywhere in the string — a minimal domain structure requirement.
+By separating prefix extraction from body validation, the two concerns are **completely decoupled** — each is independently readable, testable, and modifiable.
 
-### Layer 3 — Character Validation Loop
-Every character is checked against an allowed set. Any character outside the set sets `valid = false` and breaks immediately.
+| Aspect | Basic Version | This Version |
+|--------|--------------|--------------|
+| Prefix handling | Whitelisted by positional bounds in loop | Extracted upfront via `substr(start)` |
+| Loop logic | Opaque — prefix characters silently allowed | Transparent — loop only sees post-prefix content |
+| `rest` isolation | No — full string iterated | Yes — `rest` is a clean independent variable |
+| Allowed characters | `alnum`, `-`, `.` only | Full RFC-aligned set (see below) |
+| Readability | Requires careful analysis | Self-evident |
 
 ---
 
-## The Loop Condition — The Most Important Detail
+## How It Works — Three Clean Stages
 
-The character validation condition inside the loop is:
+### Stage 1 — Protocol Detection and `start` Assignment
 
 ```cpp
-!(isalnum(s[i]) || s[i] == '-' || s[i] == '.'
-  || (i < 7 && s.substr(0,7) == "http://")
-  || (i < 8 && s.substr(0,8) == "https://"))
+if (s.substr(0, 7) == "http://")  { start = 7; }
+else if (s.substr(0, 8) == "https://") { start = 8; }
+else { cout << "invalid"; return 0; }
 ```
 
-The last two sub-conditions are the subtle part:
+The variable `start` records where the protocol ends and the actual URL body begins. The prefix is detected, its length is stored, and everything else is handled through `start`.
+
+---
+
+### Stage 2 — Rest Extraction and Structural Check
 
 ```cpp
-(i < 7 && s.substr(0,7) == "http://")
-(i < 8 && s.substr(0,8) == "https://")
+string rest = s.substr(start);
+
+if (rest.find('.') == string::npos || rest.empty())
+{
+    cout << "invalid";
+    return 0;
+}
 ```
 
-**What these do:** For positions `0` through `6` in an `http://` URL (or `0` through `7` in an `https://` URL), the condition evaluates to `true` — meaning every character in the prefix is **unconditionally allowed**, regardless of what it actually is.
+`rest` is the URL body — everything after `http://` or `https://`. Two structural requirements are checked:
 
-**Why this is needed:** The prefix characters `:` and `/` are neither alphanumeric, nor `-`, nor `.`. Without this exemption, even a perfectly valid URL like `http://example.com` would fail because `:` and `/` at positions 4, 5, 6 would be rejected.
+- **`rest.empty()`** — rejects bare `http://` or `https://` with nothing following
+- **`rest.find('.') == string::npos`** — rejects URLs with no dot (no domain structure)
 
-**The trade-off:** This approach whitelists the prefix positions implicitly rather than explicitly adding `':'` and `'/'` to the allowed character set. It works correctly but is harder to read and reason about than a more explicit approach would be.
+Note the **order of the conditions**: `rest.find('.')` is evaluated before `rest.empty()` in the `||` expression — but since `empty()` is cheaper, swapping their order to check `empty()` first would be a minor efficiency improvement:
 
-**A cleaner equivalent:**
 ```cpp
-// Validate prefix separately, then validate the rest explicitly
-string rest = s.substr(prefix_length);
-for (char c : rest) {
-    if (!(isalnum(c) || c == '-' || c == '.')) {
+if (rest.empty() || rest.find('.') == string::npos)   // cheaper check first
+```
+
+---
+
+### Stage 3 — Character Validation
+
+```cpp
+for (char c : rest)
+{
+    if (!(isalnum(c) || c == '-' || c == '.' || c == '/'  ||
+          c == '_'   || c == '?' || c == '=' || c == '&'  ||
+          c == '#'   || c == '%' || c == '+' || c == ':'  || c == '@'))
+    {
         valid = false;
         break;
     }
 }
 ```
+
+Every character in `rest` is tested against the allowed set. The **range-based for loop** (`for (char c : rest)`) is cleaner and more idiomatic C++11 than an index-based loop for character iteration.
+
+---
+
+## The Allowed Character Set — What Each Character Covers
+
+| Character(s) | URL Role |
+|--------------|----------|
+| `isalnum` (a-z, A-Z, 0-9) | Domain names, path segments, query values |
+| `-` | Hyphenated domain names (`my-site.com`) |
+| `.` | Domain separators (`www.example.co.uk`) |
+| `/` | Path separators (`/api/v1/users`) |
+| `_` | Underscores in paths or parameters |
+| `?` | Query string start (`?q=search`) |
+| `=` | Query key-value separator (`q=hello`) |
+| `&` | Query parameter separator (`a=1&b=2`) |
+| `#` | Fragment identifier (`#section-2`) |
+| `%` | Percent-encoding prefix (`%20` for space) |
+| `+` | Space encoding in query strings (`hello+world`) |
+| `:` | Port separator (`example.com:8080`) |
+| `@` | User credentials separator (`user@host`) |
+
+This set covers the majority of characters found in real-world URLs for everyday use cases.
 
 ---
 
@@ -136,17 +202,23 @@ for (char c : rest) {
 ```
 read s
 
-if s does not start with "http://" or "https://":
+if s starts with "http://":
+    start ← 7
+else if s starts with "https://":
+    start ← 8
+else:
     print "invalid"
     exit
 
-if s contains no '.':
+rest ← s[start..]
+
+if rest is empty OR rest has no '.':
     print "invalid"
     exit
 
 valid ← true
-for each character s[i]:
-    if s[i] is not (alphanumeric OR '-' OR '.' OR within prefix range):
+for each character c in rest:
+    if c not in allowed set:
         valid ← false
         break
 
@@ -157,34 +229,50 @@ print "valid" if valid else "invalid"
 
 ## Dry Run
 
-**Input:** `https://www.example.com`
+**Input:** `https://www.example.com/search?q=dsa&lang=en#results`
 
-**Layer 1:** `s.substr(0,8) == "https://"` → ✅
-**Layer 2:** `s.find('.')` → found at index 11 → ✅
+**Stage 1:**
+```
+s.substr(0,8) == "https://" → ✅   start = 8
+```
 
-**Layer 3 — Character scan:**
+**Stage 2:**
+```
+rest = "www.example.com/search?q=dsa&lang=en#results"
+rest.empty()             → false ✅
+rest.find('.')           → 3 (found) ✅
+```
 
-| `i` | `s[i]` | alphanumeric / `-` / `.`? | In prefix range (`i<8`)? | Allowed? |
-|-----|--------|--------------------------|--------------------------|----------|
-| 0-7 | `https://` | `:` and `/` fail char check | ✅ `i < 8` | ✅ |
-| 8   | `w`    | ✅ alphanumeric            | —                        | ✅ |
-| 9   | `w`    | ✅ alphanumeric            | —                        | ✅ |
-| 10  | `w`    | ✅ alphanumeric            | —                        | ✅ |
-| 11  | `.`    | ✅ dot                     | —                        | ✅ |
-| ... | `example.com` | ✅ all alphanumeric / dot | —                   | ✅ |
+**Stage 3 — Character scan:**
 
-**Output:** `valid` ✅
+| Character | Allowed By |
+|-----------|------------|
+| `w`, `w`, `w` | `isalnum` |
+| `.` | `.` literal |
+| `example` | `isalnum` |
+| `.` | `.` literal |
+| `com` | `isalnum` |
+| `/` | `/` literal |
+| `search` | `isalnum` |
+| `?` | `?` literal |
+| `q`, `=`, `dsa` | `isalnum`, `=` literal |
+| `&` | `&` literal |
+| `lang=en` | `isalnum`, `=` literal |
+| `#` | `#` literal |
+| `results` | `isalnum` |
+
+All characters pass → **Output:** `valid` ✅
 
 ---
 
-**Input:** `https://www.example.com/path`
+**Input:** `https://example.com/path with spaces`
 
-| Character | `s[i]` | Allowed? |
-|-----------|--------|----------|
-| ...       | `example.com` | ✅ |
-| 23        | `/`    | Not alphanumeric, not `-`, not `.`, not in prefix range | ❌ → `invalid` |
+```
+rest = "example.com/path with spaces"
+' ' (space) → not in allowed set → valid = false
+```
 
-**Output:** `invalid` ⚠️ *(despite being a perfectly valid real-world URL)*
+**Output:** `invalid` ✅
 
 ---
 
@@ -192,43 +280,43 @@ print "valid" if valid else "invalid"
 
 | Metric | Complexity |
 |--------|------------|
-| Time   | **O(n)** — single pass through the string; `substr` in prefix check is O(1) for fixed lengths |
-| Space  | **O(1)** — no auxiliary data structures; only a boolean flag and loop variable |
+| Time   | **O(n)** — single pass through `rest`; prefix checks are O(1) for fixed lengths |
+| Space  | **O(n)** — `rest` is a new string of length `n - start`; this is the only allocation |
 
-> **Repeated `substr` inside the loop:** `s.substr(0,7)` and `s.substr(0,8)` are called on every iteration of the loop — these create new string objects each time, technically O(k) per call. Since k is fixed (7 or 8), this is O(1) per iteration in practice, but it is inefficient style. Precomputing `bool isHttp = (s.substr(0,7) == "http://")` before the loop would be cleaner.
+> **Optimization note:** `string rest = s.substr(start)` allocates a new string. For large inputs, this can be avoided by iterating from index `start` directly: `for (int i = start; i < s.size(); i++)`. This keeps space at O(1) while maintaining the same clean separation of prefix and body logic.
 
 ---
 
-## What This Validator Accepts and Rejects
+## What This Validator Now Accepts vs. the Basic Version
 
-### ✅ Accepted (Valid by this code)
+| URL | Basic Version | This Version |
+|-----|--------------|--------------|
+| `https://example.com` | ✅ valid | ✅ valid |
+| `https://example.com/path` | ❌ invalid (/ rejected) | ✅ valid |
+| `https://example.com?q=search` | ❌ invalid (? = rejected) | ✅ valid |
+| `https://example.com#section` | ❌ invalid (# rejected) | ✅ valid |
+| `https://example.com:8080` | ❌ invalid (: rejected) | ✅ valid |
+| `https://user@example.com` | ❌ invalid (@ rejected) | ✅ valid |
+| `https://example.com/a%20b` | ❌ invalid (% rejected) | ✅ valid |
+| `ftp://example.com` | ❌ invalid | ❌ invalid ✅ |
+| `https://nodot` | ❌ invalid | ❌ invalid ✅ |
 
-| URL | Reason |
-|-----|--------|
-| `http://example.com` | Protocol + dot + clean domain |
-| `https://www.google.com` | Protocol + dot + alphanumeric domain |
-| `https://my-site.com` | Hyphen allowed |
-| `http://sub.domain.co.uk` | Multiple dots allowed |
+---
 
-### ❌ Rejected (Invalid by this code, but valid in reality)
+## Remaining Limitations
 
-| URL | Rejected Because |
-|-----|-----------------|
-| `https://example.com/path` | `/` after prefix not allowed |
-| `https://example.com?q=search` | `?`, `=` not in allowed set |
-| `https://example.com#section` | `#` not in allowed set |
-| `http://example.com:8080` | `:` after prefix not in allowed set |
-| `https://user:pass@example.com` | `@`, `:` not in allowed set |
-| `https://xn--nxasmq6b.com` | `--` pattern technically allowed but edge cases exist |
+Despite the significant improvements, some real-world URL patterns are still not covered:
 
-### ❌ Rejected (Correctly invalid)
-
-| URL | Reason |
-|-----|--------|
-| `ftp://example.com` | Wrong protocol |
-| `http://nodothere` | No `.` found |
-| `https://exam ple.com` | Space not in allowed set (also, `cin` would truncate here) |
-| `randomstring` | No recognized protocol |
+| Scenario | Status | Reason |
+|----------|--------|--------|
+| `https://example.com` with Unicode domain | ❌ Rejected | Non-ASCII characters fail `isalnum` |
+| `%` followed by invalid hex (e.g., `%GG`) | ✅ Accepted ⚠️ | `%` is allowed but encoding validity is not checked |
+| Dot at start of rest (`https://.com`) | ✅ Accepted ⚠️ | Dot presence is checked, not position |
+| Dot at end (`https://example.`) | ✅ Accepted ⚠️ | Trailing dot not validated |
+| Consecutive dots (`https://exam..ple.com`) | ✅ Accepted ⚠️ | No structural domain validation |
+| IP addresses (`https://192.168.1.1`) | ✅ Accepted ✅ | Digits and dots are both allowed |
+| IPv6 (`https://[::1]`) | ❌ Rejected | `[` and `]` not in allowed set |
+| Spaces in URL | ❌ Rejected ✅ | Correctly invalid (also truncated by `cin`) |
 
 ---
 
@@ -236,38 +324,34 @@ print "valid" if valid else "invalid"
 
 | Input | Output | Notes |
 |-------|--------|-------|
-| `http://.` | `valid` ⚠️ | Passes all three checks — not a real domain |
-| `https://.com` | `valid` ⚠️ | No hostname before dot — structurally invalid but accepted |
+| `http://` | `invalid` ✅ | `rest.empty()` catches this |
+| `https://` | `invalid` ✅ | `rest.empty()` catches this |
+| `http://nodot` | `invalid` ✅ | `rest.find('.')` catches this |
 | `http://a.b` | `valid` ✅ | Minimal valid-looking URL |
-| `http://` | `invalid` ✅ | No dot present |
-| `https://` | `invalid` ✅ | No dot present |
-| Empty string | Undefined behavior ⚠️ | `substr(0,7)` on a string shorter than 7 returns the whole string — no crash, but behavior depends on string content |
-
----
-
-## A Note on `cin >> s`
-
-The code uses `cin >> s`, which reads a single whitespace-delimited token. URLs with spaces (malformed as they are) would be silently truncated at the first space. For reading full lines including spaces, `getline(cin, s)` is the correct approach — though well-formed URLs should never contain unencoded spaces.
+| `https://.com` | `valid` ⚠️ | No hostname before dot — not structurally valid |
+| `http://a.b<script>` | `invalid` ✅ | `<` and `>` not in allowed set |
+| Empty string | Undefined ⚠️ | `substr(0,7)` on empty string returns `""` — no crash, but no prompt either |
 
 ---
 
 ## A Note on `#include <bits/stdc++.h>`
 
-The only headers actually needed for this program are:
+The only standard headers needed here are:
 
 ```cpp
 #include <iostream>   // cin, cout
-#include <string>     // string, substr, find
+#include <string>     // string, substr, find, empty
+#include <cctype>     // isalnum
 ```
 
-`bits/stdc++.h` is a GCC-specific convenience header — practical in competitive programming, not recommended in production or interview code at product companies.
+`bits/stdc++.h` includes the entire C++ standard library — a GCC-specific convenience used widely in competitive programming but flagged in production and interview code at product companies for its portability and compile-time cost.
 
 ---
 
 ## Repository Structure
 
 ```
-DSA-URL-Validator/
+DSA-URL-Validator-Extended/
 │
 ├── url_validator.cpp     # Main C++ implementation
 └── README.md             # Project documentation
@@ -281,8 +365,8 @@ DSA-URL-Validator/
 
 ```bash
 # Clone the repository
-git clone https://github.com/rishita-ops/DSA-URL-Validator.git
-cd DSA-URL-Validator
+git clone https://github.com/rishita-ops/DSA-URL-Validator-Extended.git
+cd DSA-URL-Validator-Extended
 
 # Compile
 g++ url_validator.cpp -o url_validator
@@ -301,47 +385,37 @@ url_validator.exe
 
 ## Key Concepts Covered
 
-- **`std::string::substr`** — extracting a fixed-length prefix for protocol detection
-- **`std::string::find`** — searching for a character and comparing against `string::npos`
-- **`isalnum`** — standard C character classification for alphanumeric check
-- **Prefix range whitelisting in loop** — using positional bounds to implicitly allow protocol characters
-- **Guard clause / early exit** — rejecting invalid inputs at the earliest possible check
-- **`string::npos`** — the sentinel return value of `find` when the character is not present
-- **Layered validation** — decomposing a complex check into ordered, independent conditions
+- **Prefix extraction via `substr(start)`** — cleanly separating protocol from body before validation
+- **Early return pattern** — rejecting invalid inputs at the earliest possible stage before any loop runs
+- **`string::npos` sentinel** — the return value of `find` when the target character is absent
+- **Range-based for loop on string** — idiomatic C++11 character iteration
+- **Allowed character set design** — mapping each permitted character to its URL role
+- **Condition order in `||` expressions** — checking cheaper conditions first
+- **`substr` allocation trade-off** — clarity vs. memory when extracting `rest`
+- **`bits/stdc++.h`** — competitive programming convenience vs. portable production headers
 
 ---
 
-## Why Real URL Validation is Hard
+## Why URL Validation Matters in DSA and Beyond
 
-This implementation captures the spirit of URL validation cleanly for simple cases, but real URLs are governed by **RFC 3986**, which defines a far richer grammar:
-
-```
-URI = scheme ":" hier-part [ "?" query ] [ "#" fragment ]
-```
-
-A production-grade URL validator must handle:
-
-| Component | Example | Not handled here |
-|-----------|---------|-----------------|
-| Path | `/api/v1/users` | `/` rejected after prefix |
-| Query string | `?name=john&age=30` | `?`, `=`, `&` rejected |
-| Fragment | `#section-2` | `#` rejected |
-| Port | `:8080` | `:` rejected after prefix |
-| Percent encoding | `%20` for space | `%` rejected |
-| IPv6 | `[::1]` | `[`, `]` rejected |
-| Internationalized domains | `münchen.de` | Non-ASCII rejected by `isalnum` |
-
-For production use, regex-based validation or a dedicated URI parsing library is the correct tool. This implementation is the right starting point for understanding the structural components of a URL before tackling the full specification.
+| Application | Connection |
+|-------------|------------|
+| Web scraping | Every URL must be validated before a fetch request is made |
+| Form input sanitization | Preventing malformed or malicious URLs from reaching a backend |
+| Compiler / interpreter front-ends | Lexing and tokenizing structured input uses the same character-classification approach |
+| Regex engines | This rule-based approach is essentially a hand-written subset of what `std::regex` does |
+| RFC 3986 (URI Standard) | The formal grammar this implementation approximates — the natural next step for production validators |
+| LeetCode string problems | Character classification, prefix detection, and guard clauses appear in dozens of string problems |
 
 ---
 
 ## Contributing
 
 Contributions are welcome. Consider adding:
-- A **regex-based version** using `std::regex` for richer pattern matching
-- Support for **paths, query strings, and fragments**
-- Support for **port numbers** in the URL
-- Input validation for edge cases like empty strings and very short inputs
+- **Percent-encoding validation** — verify that `%` is always followed by exactly two hex digits
+- **Domain structure validation** — ensure no leading/trailing dots, no consecutive dots
+- **IPv6 support** — allow `[` and `]` in the right context
+- **`getline` support** — handle URLs with spaces (though these are inherently malformed)
 - Implementations in Python, Java, or JavaScript
 
 ```bash
