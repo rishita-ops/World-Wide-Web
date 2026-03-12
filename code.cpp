@@ -1,26 +1,41 @@
-#include<bits/stdc++.h>
+#include <bits/stdc++.h>
 using namespace std;
-int main()
-{
+
+int main() {
     string s;
-    cin>>s;
-    if((s.substr(0,7)=="http://" || s.substr(0,8)=="https://") && s.find('.')!=string::npos)
-    {
-        bool valid=true;
-        for(int i=0;i<s.size();i++)
-        {
-            if(!(isalnum(s[i]) || s[i]=='-' || s[i]=='.' || (i<7 && s.substr(0,7)=="http://") || (i<8 && s.substr(0,8)=="https://")))
-            {
-                valid=false;
-                break;
-            }
-        }
-        if(valid)
-            cout<<"valid";
-        else
-            cout<<"invalid";
+    cin >> s;
+
+    string prefix;
+    int start;
+
+    if (s.substr(0, 7) == "http://") {
+        prefix = "http://";
+        start = 7;
+    } else if (s.substr(0, 8) == "https://") {
+        prefix = "https://";
+        start = 8;
+    } else {
+        cout << "invalid";
+        return 0;
     }
-    else
-        cout<<"invalid";
+
+    string rest = s.substr(start); 
+
+    if (rest.find('.') == string::npos || rest.empty()) {
+        cout << "invalid";
+        return 0;
+    }
+
+    bool valid = true;
+    for (char c : rest) {
+        if (!(isalnum(c) || c == '-' || c == '.' || c == '/' ||
+              c == '_' || c == '?' || c == '=' || c == '&' ||
+              c == '#' || c == '%' || c == '+' || c == ':' || c == '@')) {
+            valid = false;
+            break;
+        }
+    }
+
+    cout << (valid ? "valid" : "invalid");
     return 0;
 }
